@@ -1,5 +1,5 @@
 pushd %~dp0
-call git pull --rebase --autostash
+call git pull --strategy-option=theirs
 
 call npm install --no-audit
 cls

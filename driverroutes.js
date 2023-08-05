@@ -67,7 +67,6 @@ async function createBot(){
     const [model_select] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[5]/div[2]/select`);
     const [button] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[11]/button`);
 
-
     let prompt_message;
     systemmsgs.forEach(system => {
       prompt_message += system
