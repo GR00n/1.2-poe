@@ -1,6 +1,6 @@
-import htmlparser from "node-html-parser";
+import parser from "node-html-parser";
 import puppeteer from "puppeteer";
-
+import chalk from "chalk";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -16,17 +16,20 @@ import {
 
 
 } from "./config.js";
-import chalk from "chalk";
 
-let charname;
 let systemmsgs = [];
 let result = [];
+
+let charname;
 let page;
 let browser;
+
 async function initializeDriver() {
   browser = await puppeteer.launch({headless: "new"})
   page = await browser.newPage()
   await page.setViewport({ width: 1366, height: 768});
+  await page.goto("https://poe.com/")
+  await page.setCookie({name: 'p-b',value: COOKIE});
 }
 async function convertPOEtoOAI(messages, maxTokens) {
   let messageout = messages;
@@ -53,22 +56,25 @@ async function convertPOEtoOAI(messages, maxTokens) {
   };
   return newresponse;
 }
+// TODO: make this faster
 async function createBot(){
   try {
     await page.goto("https://poe.com/create_bot")
-    await page.setCookie({name: 'p-b',value: COOKIE});
+
+    // Selectors
     const [prompt_textfield] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[6]/textarea`);
     const [model_select] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[5]/div[2]/select`);
-
     const [button] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[11]/button`);
-    let prompt_message 
 
+
+    let prompt_message;
     systemmsgs.forEach(system => {
       prompt_message += system
     });
     RULES.forEach(rule => {
       prompt_message += rule
     });
+
     await prompt_textfield.type(" ")
     await page.evaluate(
       (element, value) => element.value = value,  
@@ -79,13 +85,13 @@ async function createBot(){
 
     await button.click()
     console.log("> Bot Created")
-    
+
   } catch (error) {
-    console.log("> Failed To Create Bot")
-    console.log("> Retrying")
+    console.log("> Failed To Create Bot, Retrying")
     await createBot()
   }
 }
+// TODO: clean up the code abit
 async function getResult(){
   try {
     console.log("> Waiting for Response")
@@ -97,7 +103,7 @@ async function getResult(){
     console.log("> Getting Response")
 
     let lastmsg = "";
-    let root = htmlparser.parse(await page.content());
+    let root = parser.parse(await page.content());
 
     let out = root.querySelectorAll(".Markdown_markdownContainer__UyYrv");
     let lastbubble = out[out.length - 1].querySelectorAll("p");
@@ -155,6 +161,8 @@ async function sendMessages(input) {
   }
 
 }
+
+//TODO: Add some Code that splits messages at the MAXPROMPT limit
 async function messageContructor(messages){
   let systemsplit = messages[0].content.split("'s");
 
@@ -184,12 +192,6 @@ async function sagedriverCompletion(req, res) {
   if (req.body.stream == true) {
     await initializeDriver(req.body.messages);
   } else {
-    switch (req.body.model){
-      case "ChatGbt":
-        model = "chatgbt"
-      case "Claude-Instant":
-        model = "claude-instant"
-    }
     await initializeDriver();
     await messageContructor(req.body.messages);
     await createBot()
@@ -213,4 +215,4 @@ async function sagedriverCompletion(req, res) {
   }
 }
 
-export { sagedriverCompletion};
+export { sagedriverCompletion };

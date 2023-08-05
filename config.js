@@ -16,8 +16,6 @@ export const BAD = [
   `...`,
   `As an AI language model`,
   `I'm sorry,`,
-
-
 ]
 
 export const RULES = [
