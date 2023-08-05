@@ -20,7 +20,7 @@ import {
 let systemmsgs = [];
 let result = [];
 
-let charname;
+// let charname;
 let page;
 let browser;
 
@@ -60,6 +60,7 @@ async function convertPOEtoOAI(messages, maxTokens) {
 async function createBot(){
   try {
     await page.goto("https://poe.com/create_bot")
+    await page.setCookie({name: 'p-b',value: COOKIE});
 
     // Selectors
     const [prompt_textfield] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[6]/textarea`);
@@ -121,11 +122,10 @@ async function getResult(){
     lastmsg = lastmsg.replace("</a>", "");
     lastmsg = lastmsg.replace('<code node="[object Object]">', "").replace(/<\/code>/g, "");
 
-    return lastmsg;
+    return lastmsg.replace("You:","");
     
   } catch (error) {
-    console.log("> Failed to get Result")
-    console.log("> Retrying")
+    console.log("> Failed to get Result, Retrying")
     await getResult()
   }
 }
@@ -155,24 +155,22 @@ async function sendMessages(input) {
       }
     }
   } catch (error) {
-    console.log("> Failed to Send Message")
-    console.log("> Retrying")
+    console.log("> Failed to Send Message, Retrying")
     await sendMessages(input)
   }
-
 }
 
 //TODO: Add some Code that splits messages at the MAXPROMPT limit
 async function messageContructor(messages){
-  let systemsplit = messages[0].content.split("'s");
+  // let systemsplit = messages[0].content.split("'s");
 
-  for (let sentence of systemsplit) {
-    if (sentence.includes("Write ")) {
-      charname = sentence.substring(6);
-      break;
-    }
-  }
-  result = [];
+  // for (let sentence of systemsplit) {
+  //   if (sentence.includes("Write ")) {
+  //     charname = sentence.substring(6);
+  //     break;
+  //   }
+  // }
+  result = ["The message history, respond to the last message accordingly do not at any point include 'You:' or 'User:' in you're responses"];
   systemmsgs = []
 
   for (let message of messages) {
@@ -180,7 +178,7 @@ async function messageContructor(messages){
     if (message.role === "system") {
       systemmsgs.push(message.content);
     } else if (message.role === "assistant") {
-      result += `${charname}: ${message.content}`+ "\n";
+      result += `You: ${message.content}`+ "\n";
     } else if (message.role === "user") {
       result += `User: ${message.content}`+ "\n";
     }
@@ -190,7 +188,7 @@ async function messageContructor(messages){
 
 async function sagedriverCompletion(req, res) {
   if (req.body.stream == true) {
-    await initializeDriver(req.body.messages);
+    console.log("> Streaming isnt Supported yet")
   } else {
     await initializeDriver();
     await messageContructor(req.body.messages);
@@ -202,15 +200,16 @@ async function sagedriverCompletion(req, res) {
     let newres = await convertPOEtoOAI(lastmsg, maxtoken);
     if (typeof newres == "object") newres = JSON.parse(JSON.stringify(newres));
 
+    // message selector
+    let message = newres.choices[0].message.content;
 
     browser.close();
-    if (BAD.some(str => newres.choices[0].message.content.startsWith(str))){
-      console.log("> Bad Response")
-      console.log("> Retrying")
+    if (BAD.some(str => message.startsWith(str)) || message.includes("User:")){
+      console.log("> Bad Response, Retrying")
       await sagedriverCompletion(req, res)
     }else{
       res.status(200).json(newres);   
-      console.log("> Message \n"+"'"+chalk.blue(newres.choices[0].message.content)+"'")
+      console.log("> Got Message, Waiting for Another Request..." )
     }
   }
 }

@@ -19,7 +19,7 @@ export const BAD = [
 ]
 
 export const RULES = [
-  ` 
+` 
 RULES [Assume the role of a fictional character and respond to the {{user}}'s 
 inputs as an immersive fictional roleplay or chat. Always stay in character and avoid repetition. 
 Above all, perform actions in character and scenario that fit the certian senario. 
