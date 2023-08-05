@@ -105,24 +105,26 @@ async function getResult(){
 
     let lastmsg = "";
     let root = parser.parse(await page.content());
-
     let out = root.querySelectorAll(".Markdown_markdownContainer__UyYrv");
     let lastbubble = out[out.length - 1].querySelectorAll("p");
+    
     for (let bubble of lastbubble) {
       lastmsg += bubble.innerHTML;
       lastmsg += "\n";
     }
 
-    lastmsg = lastmsg.replace(/<em>/g, "*").replace(/<\/em>/g, "*");
-    lastmsg = lastmsg.replace(/<br>/g, "").replace(/<p>/g, "").replace(/<\/p>/g, "");
-    lastmsg = lastmsg.replace(
-      '<a node="[object Object]" class="MarkdownLink_linkifiedLink__KxC9G">',
-      ""
-    );
-    lastmsg = lastmsg.replace("</a>", "");
-    lastmsg = lastmsg.replace('<code node="[object Object]">', "").replace(/<\/code>/g, "");
+    return lastmsg
 
-    return lastmsg.replace("You:","");
+    .replace(/<em>/g, "*")
+    .replace(/<\/em>/g, "*")
+    .replace(/<br>/g, "")
+    .replace(/<p>/g, "")
+    .replace(/<\/p>/g, "")
+    .replace('<a node="[object Object]" class="MarkdownLink_linkifiedLink__KxC9G">',"")
+    .replace(/<\/a>/g, "")
+    .replace('<code node="[object Object]">', "")
+    .replace(/<\/code>/g, "")
+    .replace("You:","");
     
   } catch (error) {
     console.log("> Failed to get Result, Retrying")
