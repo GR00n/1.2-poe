@@ -1,7 +1,9 @@
 import parser from "node-html-parser";
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-extra";
+import stealth from "puppeteer-extra-plugin-stealth"
 import chalk from "chalk";
 import dotenv from "dotenv";
+import fs from "fs"
 dotenv.config();
 
 
@@ -11,9 +13,7 @@ import {
   COOKIE, 
   MAXPROMPT,
   RULES, 
-  PRIOD, 
   BAD
-
 
 } from "./config.js";
 
@@ -24,8 +24,48 @@ let result = [];
 let page;
 let browser;
 
+function RandomString(length) {
+  let result = '';
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const charactersLength = characters.length;
+
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * charactersLength));
+  }
+
+  return result;
+}
+function reloadEnv() {
+  const envConfig = dotenv.config();
+  if (envConfig.error) {
+    throw envConfig.error;
+  }
+}
+function setBotName(input){
+      fs.readFile('.env', 'utf8', (err, data) => {
+      if (err) {
+          console.error(err);
+          return;
+        }
+        // Replace the value of the BOT_NAME variable
+        const updatedData = data.replace(/^BOT_NAME=.*/m, `BOT_NAME=${input}`);
+
+        // Write the updated data back to the .env file
+        fs.writeFile('.env', updatedData, 'utf8', (err) => {
+          if (err) {
+            console.error(err);
+            return;
+          }
+          console.log('> Value in .env file updated successfully.');
+        });
+      });
+}
+
+
 async function initializeDriver() {
-  browser = await puppeteer.launch({headless: "new"})
+  puppeteer.use(stealth())
+
+  browser = await puppeteer.launch({headless: false})
   page = await browser.newPage()
   await page.setViewport({ width: 1366, height: 768});
   await page.goto("https://poe.com/")
@@ -67,6 +107,23 @@ async function createBot(){
     const [model_select] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[5]/div[2]/select`);
     const [button] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[11]/button`);
 
+    // name text field
+    const [name] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[2]/input`)
+
+    // the switch that makes the bot public
+    // default is on
+    const [public_switch] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[8]/div[3]/label/span`)
+
+    const botname = `${RandomString(8)}_Custom`;
+    
+    await page.evaluate(
+      (element, value) => element.value = value,  
+      name, 
+      botname
+    );
+    await name.press("Enter")
+    setBotName(botname)
+
     let prompt_message;
     systemmsgs.forEach(system => {
       prompt_message += system
@@ -83,12 +140,53 @@ async function createBot(){
     );
     await model_select.select('chinchilla');
 
+    await public_switch.click()
     await button.click()
     console.log("> Bot Created")
 
   } catch (error) {
     console.log("> Failed To Create Bot, Retrying")
     await createBot()
+  }
+}
+async function editBot(){ 
+  try {
+    let BotName = process.env.BOT_NAME;
+
+    await page.goto(`https://poe.com/edit_bot?bot=${BotName}`)
+    await page.setCookie({name: 'p-b',value: COOKIE});
+
+    // Selectors
+    const [prompt_textfield] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[5]/textarea`);
+    const [button] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[10]/button`);
+
+    let prompt_message;
+    systemmsgs.forEach(system => {
+      prompt_message += system
+    });
+    RULES.forEach(rule => {
+      prompt_message += rule
+    });
+
+    await prompt_textfield.type(" ")
+    await page.evaluate(
+      (element, value) => element.value = value,  
+      prompt_textfield, 
+      prompt_message
+    );
+    // await button.click()
+    console.log("> Bot Edited")
+
+  } catch (error) {
+    if (await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/div`)){
+      console.log("> Bot got Flagged, Recreating")
+      setBotName(" ")
+      reloadEnv()
+      await createBot()
+    }else{
+      console.log("> Failed To Edit Bot, Retrying")
+      await editBot()
+    }
   }
 }
 // TODO: clean up the code abit
@@ -130,8 +228,13 @@ async function getResult(){
     await getResult()
   }
 }
-async function sendMessages(input) {
-  let messages = []
+async function sendMessages(input) {  
+  reloadEnv()
+  let BotName = process.env.BOT_NAME;
+  
+  page.goto(`https://poe.com/${BotName}`)
+
+  let messages = [] 
   messages.push(input);
   try {
     let textfield = await page.waitForXPath(`//*[@id="__next"]/div[1]/div/section/div[2]/div/div/footer/div/div/div[1]/textarea`)
@@ -156,8 +259,17 @@ async function sendMessages(input) {
       }
     }
   } catch (error) {
-    console.log("> Failed to Send Message, Retrying")
-    await sendMessages(input)
+    if (await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/div`)){
+      setBotName(" ")
+      reloadEnv()
+      console.log("> Bot got Flagged, Recreating")
+      await createBot()
+      await sendMessages()
+    }else{
+      console.log("> Failed to Send Message, Retrying")
+      await sendMessages(input)
+    }
+
   }
 }
 
@@ -171,29 +283,35 @@ async function messageContructor(messages){
   //     break;
   //   }
   // }
-  result = ["The message history, respond to the last message accordingly do not at any point include 'You:' or 'User:' in you're responses"];
+  let sysmessage;
   systemmsgs = []
 
   for (let message of messages) {
-
     if (message.role === "system") {
       systemmsgs.push(message.content);
     } else if (message.role === "assistant") {
-      result += `You: ${message.content}`+ "\n";
+      sysmessage += `You: ${message.content}`+ "\n";
     } else if (message.role === "user") {
-      result += `User: ${message.content}`+ "\n";
+      sysmessage += `User: ${message.content}`+ "\n";
     }
+    result = [`CHAT [${sysmessage}]`];
   }
   return (result)
 }
 
 async function sagedriverCompletion(req, res) {
+  reloadEnv()
+
   if (req.body.stream == true) {
     console.log("> Streaming isnt Supported yet")
   } else {
     await initializeDriver();
     await messageContructor(req.body.messages);
-    await createBot()
+    if (process.env.BOT_NAME != ""){
+      await editBot()
+    }else{
+      await createBot()
+    }
     await sendMessages(result)
 
     let maxtoken = req.body.max_tokens;
