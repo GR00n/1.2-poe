@@ -16,51 +16,12 @@ import {
   BAD
 
 } from "./config.js";
-
 let systemmsgs = [];
 let result = [];
 
-// let charname;
+let charname;
 let page;
 let browser;
-
-function RandomString(length) {
-  let result = '';
-  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const charactersLength = characters.length;
-
-  for (let i = 0; i < length; i++) {
-    result += characters.charAt(Math.floor(Math.random() * charactersLength));
-  }
-
-  return result;
-}
-function reloadEnv() {
-  const envConfig = dotenv.config();
-  if (envConfig.error) {
-    throw envConfig.error;
-  }
-}
-function setBotName(input){
-      fs.readFile('.env', 'utf8', (err, data) => {
-      if (err) {
-          console.error(err);
-          return;
-        }
-        // Replace the value of the BOT_NAME variable
-        const updatedData = data.replace(/^BOT_NAME=.*/m, `BOT_NAME=${input}`);
-
-        // Write the updated data back to the .env file
-        fs.writeFile('.env', updatedData, 'utf8', (err) => {
-          if (err) {
-            console.error(err);
-            return;
-          }
-          console.log('> Value in .env file updated successfully.');
-        });
-      });
-}
-
 
 async function initializeDriver() {
   puppeteer.use(stealth())
@@ -110,14 +71,11 @@ async function createBot(){
     // name text field
     const [name] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[2]/input`)
 
-    // the switch that makes the bot public
-    // default is on
-    const [public_switch] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[8]/div[3]/label/span`)
-
     const botname = `${RandomString(8)}_Custom`;
     
-    await page.evaluate(
-      (element, value) => element.value = value,  
+    await page.evaluate((element, value) => 
+    element.value = 
+      value,  
       name, 
       botname
     );
@@ -125,14 +83,17 @@ async function createBot(){
     setBotName(botname)
 
     let prompt_message;
+
     systemmsgs.forEach(system => {
       prompt_message += system
     });
+
     RULES.forEach(rule => {
       prompt_message += rule
     });
 
     await prompt_textfield.type(" ")
+
     await page.evaluate(
       (element, value) => element.value = value,  
       prompt_textfield, 
@@ -140,7 +101,6 @@ async function createBot(){
     );
     await model_select.select('chinchilla');
 
-    await public_switch.click()
     await button.click()
     console.log("> Bot Created")
 
@@ -180,8 +140,7 @@ async function editBot(){
   } catch (error) {
     if (await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/div`)){
       console.log("> Bot got Flagged, Recreating")
-      setBotName(" ")
-      reloadEnv()
+      setBotName("")
       await createBot()
     }else{
       console.log("> Failed To Edit Bot, Retrying")
@@ -229,90 +188,107 @@ async function getResult(){
   }
 }
 async function sendMessages(input) {  
-  reloadEnv()
-  let BotName = process.env.BOT_NAME;
-  
-  page.goto(`https://poe.com/${BotName}`)
+  dotenv.config({override: true});
 
-  let messages = [] 
-  messages.push(input);
+  let BotName = process.env.BOT_NAME;
+
+  if (BotName != "")
+  {
+    page.goto(`https://poe.com/${BotName}`)
+  }
+
+  let messages = input
   try {
     let textfield = await page.waitForXPath(`//*[@id="__next"]/div[1]/div/section/div[2]/div/div/footer/div/div/div[1]/textarea`)
     let i = 0
     let html;
     while (messages.length >= i) {
       let message = messages[i]
-      if (html == await page.content()){
-        console.log('> Sending Message')
-        await page.evaluate((element, value) => element.value = value,  textfield, message)
-        await textfield.type(" ")
+      console.log('> Sending Message')
+      
+      await page.evaluate((element, value) => element.value = value,  textfield, message)
+      await textfield.type(" ")
+      await textfield.press('Enter');
 
-        await textfield.press('Enter');
-        console.log('> Send Message')
-        i++
-        if (i == messages.length){
-          break
-        }
-      }else{
-        html = await page.content()
-        await new Promise(resolve => setTimeout(resolve, 300));
+      console.log('> Send Message')
+      i++
+      if (i == messages.length){
+        break
       }
+
+      const selector = '//*[@id="__next"]/div[1]/div/section/div[2]/div/div/button';
+      await page.waitForXPath(selector);    
+      const [element] = await page.$x(selector);    
+      await page.waitForFunction(elem => elem.parentNode === null, {}, element);
     }
   } catch (error) {
     if (await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/div`)){
-      setBotName(" ")
-      reloadEnv()
       console.log("> Bot got Flagged, Recreating")
       await createBot()
-      await sendMessages()
+      await sendMessages(input)
     }else{
       console.log("> Failed to Send Message, Retrying")
       await sendMessages(input)
     }
-
   }
 }
 
-//TODO: Add some Code that splits messages at the MAXPROMPT limit
+
 async function messageContructor(messages){
   // let systemsplit = messages[0].content.split("'s");
-
   // for (let sentence of systemsplit) {
   //   if (sentence.includes("Write ")) {
   //     charname = sentence.substring(6);
   //     break;
   //   }
   // }
-  let sysmessage;
+  let res_message;
+
   systemmsgs = []
+  let send = [];
 
   for (let message of messages) {
     if (message.role === "system") {
       systemmsgs.push(message.content);
     } else if (message.role === "assistant") {
-      sysmessage += `You: ${message.content}`+ "\n";
+      res_message += `you're response: ${message.content}`+ "\n";
     } else if (message.role === "user") {
-      sysmessage += `User: ${message.content}`+ "\n";
+      res_message += `user: ${message.content}`+ "\n";
     }
-    result = [`CHAT [${sysmessage}]`];
   }
-  return (result)
+  if (String(res_message).length >= 5000){
+    result = split(res_message,MAXPROMPT,".")
+  }else{
+    result.push(res_message)
+  }
+
+  result.forEach(mes => {
+    send.push(
+    `
+    Generate a Response according to 
+    these chat messages in character \n
+
+    \n
+    Chat [\n ${mes}\n]
+    `)
+  });
+  return (send)
 }
 
 async function sagedriverCompletion(req, res) {
-  reloadEnv()
+  dotenv.config({override: true});
 
   if (req.body.stream == true) {
     console.log("> Streaming isnt Supported yet")
   } else {
     await initializeDriver();
-    await messageContructor(req.body.messages);
+    let send = await messageContructor(req.body.messages);
     if (process.env.BOT_NAME != ""){
       await editBot()
     }else{
       await createBot()
     }
-    await sendMessages(result)
+    await sendMessages(send)
 
     let maxtoken = req.body.max_tokens;
     let lastmsg = await getResult();
@@ -321,7 +297,7 @@ async function sagedriverCompletion(req, res) {
 
     // message selector
     let message = newres.choices[0].message.content;
-
+    
     browser.close();
     if (BAD.some(str => message.startsWith(str)) || message.includes("User:")){
       console.log("> Bad Response, Retrying")
@@ -332,5 +308,58 @@ async function sagedriverCompletion(req, res) {
     }
   }
 }
+function RandomString(length) {
+  let result = '';
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const charactersLength = characters.length;
 
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * charactersLength));
+  }
+
+  return result;
+}
+function setBotName(input){
+      fs.readFile('.env', 'utf8', (err, data) => {
+      if (err) {
+          console.error(err);
+          return;
+        }
+        const updatedData = data.replace(/^BOT_NAME=.*/m, `BOT_NAME=${input}`);
+
+        fs.writeFile('.env', updatedData, 'utf8', (err) => {
+          if (err) {
+            console.error(err);
+            return;
+          }
+          console.log('> Value in .env file updated successfully.');
+        });
+      });
+}
+function split(str, length, backChar) {
+  const result = [];
+  let index = 0;
+
+  let Message = 
+  `
+  if you understand this only Respont with "Understood." 
+  and nothing else wait for the message without this under it than respont appropriately according to the senario 
+  `
+
+  while (index < str.length) {
+    let substring = str.substring(index, index + length);
+
+    if (substring.includes(backChar)) {
+      const backCharIndex = substring.lastIndexOf(backChar);
+      substring = substring.substring(0, backCharIndex + 1);
+      index += backCharIndex + 1;
+    } else {
+      index += length;
+    }
+
+    result.push(substring + (index < str.length ? Message : ''));
+  }
+
+  return result;
+}
 export { sagedriverCompletion };
