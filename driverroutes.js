@@ -1,9 +1,12 @@
 import parser from "node-html-parser";
 import puppeteer from "puppeteer-extra";
 import stealth from "puppeteer-extra-plugin-stealth"
-import chalk from "chalk";
 import dotenv from "dotenv";
 import fs from "fs"
+import chalk from "chalk";
+
+import {UpdateConsole} from "./index.js"
+
 dotenv.config();
 
 
@@ -15,51 +18,32 @@ import {
   RULES, 
   BAD
 
-} from "./config.js";
-let systemmsgs = [];
-let result = [];
+} from "./config.js"
+let systemmsgs = []
+let botname
+let charname
+let page
+let browser
 
-let charname;
-let page;
-let browser;
+UpdateConsole(`Starting... 0/5`)
 
 async function initializeDriver() {
+  UpdateConsole(`Starting Driver... 0/5`)
+
   puppeteer.use(stealth())
 
-  browser = await puppeteer.launch({headless: false})
+  browser = await puppeteer.launch({headless: "new"})
   page = await browser.newPage()
   await page.setViewport({ width: 1366, height: 768});
   await page.goto("https://poe.com/")
   await page.setCookie({name: 'p-b',value: COOKIE});
+
+  UpdateConsole(`Driver Started... 1/5`)
 }
-async function convertPOEtoOAI(messages, maxTokens) {
-  let messageout = messages;
-  let newresponse = {
-    id: "chatcmpl-7ep1aerr8frmSjQSfrNnv69uVY0xM",
-    object: "chat.completion",
-    created: Date.now(),
-    model: "gpt-3.5-turbo-0613",
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: "assistant",
-          content: `${messageout}`,
-        },
-        finish_reason: "stop",
-      },
-    ],
-    usage: {
-      prompt_tokens: 724,
-      completion_tokens: 75,
-      total_tokens: 799,
-    },
-  };
-  return newresponse;
-}
-// TODO: make this faster
 async function createBot(){
   try {
+    UpdateConsole(`Creating Bot... 2/5`)
+
     await page.goto("https://poe.com/create_bot")
     await page.setCookie({name: 'p-b',value: COOKIE});
 
@@ -67,12 +51,16 @@ async function createBot(){
     const [prompt_textfield] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[6]/textarea`);
     const [model_select] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[5]/div[2]/select`);
     const [button] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[11]/button`);
-
-    // name text field
     const [name] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[2]/input`)
 
-    const botname = `${RandomString(8)}_Custom`;
     
+    if (process.env.ID == ""){
+      const uuid = `${RandomString(6)}`
+      SetID(uuid)
+    }
+    botname = `${charname}_ID_${process.env.ID}`
+    .replace(" ","")
+
     await page.evaluate((element, value) => 
     element.value = 
       value,  
@@ -80,14 +68,12 @@ async function createBot(){
       botname
     );
     await name.press("Enter")
-    setBotName(botname)
 
     let prompt_message;
 
     systemmsgs.forEach(system => {
       prompt_message += system
     });
-
     RULES.forEach(rule => {
       prompt_message += rule
     });
@@ -102,23 +88,20 @@ async function createBot(){
     await model_select.select('chinchilla');
 
     await button.click()
-    console.log("> Bot Created")
 
+    UpdateConsole(`Bot Created... 3/5`)
   } catch (error) {
-    console.log("> Failed To Create Bot, Retrying")
     await createBot()
   }
 }
 async function editBot(){ 
   try {
-    let BotName = process.env.BOT_NAME;
 
-    await page.goto(`https://poe.com/edit_bot?bot=${BotName}`)
-    await page.setCookie({name: 'p-b',value: COOKIE});
+    await page.goto(`https://poe.com/edit_bot?bot=${botname}`)
+    await page.setCookie({name: 'p-b',value: COOKIE})
 
-    // Selectors
-    const [prompt_textfield] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[5]/textarea`);
-    const [button] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[10]/button`);
+    const [prompt_textfield] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[5]/textarea`)
+    const [button] = await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/form/div[10]/button`)
 
     let prompt_message;
     systemmsgs.forEach(system => {
@@ -134,16 +117,11 @@ async function editBot(){
       prompt_textfield, 
       prompt_message
     );
-    // await button.click()
-    console.log("> Bot Edited")
-
+    button.click()
   } catch (error) {
     if (await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/div`)){
-      console.log("> Bot got Flagged, Recreating")
-      setBotName("")
       await createBot()
     }else{
-      console.log("> Failed To Edit Bot, Retrying")
       await editBot()
     }
   }
@@ -151,13 +129,11 @@ async function editBot(){
 // TODO: clean up the code abit
 async function getResult(){
   try {
-    console.log("> Waiting for Response")
     const selector = '//*[@id="__next"]/div[1]/div/section/div[2]/div/div/button';
 
     await page.waitForXPath(selector);    
     const [element] = await page.$x(selector);    
     await page.waitForFunction(elem => elem.parentNode === null, {}, element);
-    console.log("> Getting Response")
 
     let lastmsg = "";
     let root = parser.parse(await page.content());
@@ -183,51 +159,49 @@ async function getResult(){
     .replace("You:","");
     
   } catch (error) {
-    console.log("> Failed to get Result, Retrying")
     await getResult()
   }
 }
 async function sendMessages(input) {  
   dotenv.config({override: true});
-
-  let BotName = process.env.BOT_NAME;
-
-  if (BotName != "")
-  {
-    page.goto(`https://poe.com/${BotName}`)
-  }
-
+  UpdateConsole(`Sending Messages... 3/5`)
   let messages = input
   try {
+    if (botname != "")
+    {
+      await page.goto(`https://poe.com/${botname}`)
+    }
+
+    const selector = '//*[@id="__next"]/div[1]/div/section/div[2]/div/div/button';
     let textfield = await page.waitForXPath(`//*[@id="__next"]/div[1]/div/section/div[2]/div/div/footer/div/div/div[1]/textarea`)
     let i = 0
-    let html;
+    const context_clear = await page.waitForXPath(`//*[@id="__next"]/div[1]/div/section/div[2]/div/div/footer/div/button`)
+
+    await context_clear.click()
     while (messages.length >= i) {
       let message = messages[i]
-      console.log('> Sending Message')
       
       await page.evaluate((element, value) => element.value = value,  textfield, message)
-      await textfield.type(" ")
-      await textfield.press('Enter');
 
-      console.log('> Send Message')
+      setTimeout(function() {
+        textfield.type(" ")
+        textfield.press("Enter")
+      }, 500);
       i++
       if (i == messages.length){
         break
       }
-
-      const selector = '//*[@id="__next"]/div[1]/div/section/div[2]/div/div/button';
-      await page.waitForXPath(selector);    
+      await page.waitForXPath(selector);
       const [element] = await page.$x(selector);    
       await page.waitForFunction(elem => elem.parentNode === null, {}, element);
     }
+
+    UpdateConsole(`Send Messages... 4/5`)
   } catch (error) {
     if (await page.$x(`//*[@id="__next"]/div[1]/div/section/div[2]/div/div`)){
-      console.log("> Bot got Flagged, Recreating")
       await createBot()
       await sendMessages(input)
     }else{
-      console.log("> Failed to Send Message, Retrying")
       await sendMessages(input)
     }
   }
@@ -235,33 +209,47 @@ async function sendMessages(input) {
 
 
 async function messageContructor(messages){
-  // let systemsplit = messages[0].content.split("'s");
-  // for (let sentence of systemsplit) {
-  //   if (sentence.includes("Write ")) {
-  //     charname = sentence.substring(6);
-  //     break;
-  //   }
-  // }
+  UpdateConsole(`Getting CharacterName... 1/5`)
+
+  let systemsplit = messages[0].content.split("'s");
+  for (let sentence of systemsplit) {
+    var startingString = 'H: You will be acting as';
+    var endingString = '.';
+
+    var startIndex = sentence.indexOf(startingString);
+    var endIndex = sentence.indexOf(endingString, startIndex + startingString.length);
+
+    if (startIndex !== -1 && endIndex !== -1) {
+      var extractedString = sentence.substring(startIndex + startingString.length, endIndex);
+      charname = String(extractedString).replace(",","")
+    }
+  }
   let res_message;
 
   systemmsgs = []
   let send = [];
+  let result = [];
+
+  UpdateConsole(`Compiling Messages... 1/5`)
 
   for (let message of messages) {
     if (message.role === "system") {
       systemmsgs.push(message.content);
     } else if (message.role === "assistant") {
-      res_message += `you're response: ${message.content}`+ "\n";
+      res_message += `${charname}: ${message.content}`+ "\n";
     } else if (message.role === "user") {
       res_message += `user: ${message.content}`+ "\n";
     }
   }
+
+  UpdateConsole(`SplitingStrings... 1/5`)
   if (String(res_message).length >= 5000){
-    result = split(res_message,MAXPROMPT,".")
+    result = Split(res_message,MAXPROMPT,".")
   }else{
     result.push(res_message)
   }
 
+  UpdateConsole(`Finishing Up... 1/5`)
   result.forEach(mes => {
     send.push(
     `
@@ -272,22 +260,35 @@ async function messageContructor(messages){
     Chat [\n ${mes}\n]
     `)
   });
+  UpdateConsole(`Finished... 2/5`)
   return (send)
 }
 
 async function sagedriverCompletion(req, res) {
   dotenv.config({override: true});
 
+  UpdateConsole(`Finishing Up... 4/5`)
+
   if (req.body.stream == true) {
-    console.log("> Streaming isnt Supported yet")
   } else {
     await initializeDriver();
     let send = await messageContructor(req.body.messages);
-    if (process.env.BOT_NAME != ""){
-      await editBot()
-    }else{
+
+
+    try {
+      page.goto(`https://poe.com/${botname}`)
+
+      let icon = await page.$x(`//*[@id="__next"]/div[1]/div/aside/div/header`)
+
+      if (icon){
+        await editBot()
+      }else{
+        await createBot()
+      }
+    }catch(error){
       await createBot()
     }
+
     await sendMessages(send)
 
     let maxtoken = req.body.max_tokens;
@@ -300,14 +301,44 @@ async function sagedriverCompletion(req, res) {
     
     browser.close();
     if (BAD.some(str => message.startsWith(str)) || message.includes("User:")){
-      console.log("> Bad Response, Retrying")
+
       await sagedriverCompletion(req, res)
     }else{
+      UpdateConsole(`All Done... 5/5`)
       res.status(200).json(newres);   
-      console.log("> Got Message, Waiting for Another Request..." )
     }
   }
 }
+
+async function convertPOEtoOAI(messages, maxTokens) {
+  let messageout = messages;
+  let newresponse = {
+    id: "chatcmpl-7ep1aerr8frmSjQSfrNnv69uVY0xM",
+    object: "chat.completion",
+    created: Date.now(),
+    model: "gpt-3.5-turbo-0613",
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: `${messageout}`,
+        },
+        finish_reason: "stop",
+      },
+    ],
+    usage: {
+      prompt_tokens: 724,
+      completion_tokens: 75,
+      total_tokens: 799,
+    },
+  };
+  return newresponse;
+}
+
+
+
+// Some extra Functions 😒
 function RandomString(length) {
   let result = '';
   const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -319,24 +350,23 @@ function RandomString(length) {
 
   return result;
 }
-function setBotName(input){
+function SetID(input){
       fs.readFile('.env', 'utf8', (err, data) => {
       if (err) {
           console.error(err);
           return;
         }
-        const updatedData = data.replace(/^BOT_NAME=.*/m, `BOT_NAME=${input}`);
+        const updatedData = data.replace(/^ID=.*/m, `ID=${input}`);
 
         fs.writeFile('.env', updatedData, 'utf8', (err) => {
           if (err) {
             console.error(err);
             return;
           }
-          console.log('> Value in .env file updated successfully.');
         });
       });
 }
-function split(str, length, backChar) {
+function Split(str, length, backChar) {
   const result = [];
   let index = 0;
 
@@ -362,4 +392,5 @@ function split(str, length, backChar) {
 
   return result;
 }
+
 export { sagedriverCompletion };

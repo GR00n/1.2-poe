@@ -87,6 +87,14 @@ app.get("/api/completions", async function (req, res) {
 
 // Start server
 app.listen(SERVER_PORT, () => {
-  console.log(`> ${chalk.greenBright(`http://${SERVER_IP}:${SERVER_PORT}/v2/driver/sage \n\n`)}`);
-  console.log(`> Waiting for Request...`)
+  UpdateConsole(`Waiting for Request...`)
 });
+
+export function UpdateConsole(...message){
+
+  console.clear()
+
+  console.log(`> ${chalk.greenBright(`http://${SERVER_IP}:${SERVER_PORT}/v2/driver/sage \n\n`)}`);
+
+  if (message) console.log(`> ${chalk.grey(message)}`)
+}
